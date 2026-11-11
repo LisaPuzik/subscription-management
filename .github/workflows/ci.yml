@@ -33,4 +33,4 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pip-audit -r requirements.txt
-      - run: pytest -q
+      - run: pytest -q --cov --cov-fail-under=90
