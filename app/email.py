@@ -47,8 +47,6 @@ def get_email_sender() -> EmailSender:
     settings = get_settings()
     if settings.smtp_host:
         return SmtpEmailSender()
-    if settings.environment == "production":
-        raise RuntimeError("SMTP_HOST is required in production")
     return ConsoleEmailSender()
 
 

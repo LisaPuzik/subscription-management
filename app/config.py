@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.currency import SUPPORTED_CURRENCIES
@@ -45,6 +45,12 @@ class Settings(BaseSettings):
         if len(value.get_secret_value()) < 32:
             raise ValueError("JWT_SECRET must be at least 32 characters")
         return value
+
+    @model_validator(mode="after")
+    def check_production(self):
+        if self.environment == "production" and not self.smtp_host:
+            raise ValueError("SMTP_HOST is required in production")
+        return self
 
 
 @lru_cache

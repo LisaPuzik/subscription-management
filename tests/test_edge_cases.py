@@ -1,7 +1,10 @@
-from sqlalchemy import update
+import logging
+
+from sqlalchemy import select, update
 
 from app.db import get_sessionmaker
-from app.models import AuthSession
+from app.main import RequestIdFilter
+from app.models import AuditLog, AuthSession
 from app.services.common import utcnow
 from tests.test_auth import csrf
 from tests.test_payments import NOW, charge, one_time, past_subscription
@@ -63,3 +66,25 @@ async def test_logout_with_foreign_or_unknown_cookie(user):
 async def test_logout_requires_csrf_when_cookie_present(user):
     r = await user.client.post("/api/v1/auth/jwt/logout", headers=user.headers)
     assert r.status_code == 403 and r.json()["error"]["code"] == "CSRF_TOKEN_INVALID"
+
+
+async def test_session_changes_are_audited(user):
+    await user.client.post("/api/v1/auth/refresh", headers=csrf(user))
+    async with get_sessionmaker()() as session:
+        actions = set(await session.scalars(select(AuditLog.action).where(AuditLog.entity_type == "auth_session")))
+    assert {"session_created", "session_rotated"} <= actions
+
+
+async def test_request_id_is_logged(client):
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    handler.addFilter(RequestIdFilter())
+    logger = logging.getLogger("app")
+    logger.addHandler(handler)
+    try:
+        r = await client.get("/api/v1/users/me")
+    finally:
+        logger.removeHandler(handler)
+    request_id = r.json()["error"]["request_id"]
+    assert any(rec.request_id == request_id and "/api/v1/users/me" in rec.getMessage() for rec in records)

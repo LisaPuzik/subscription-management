@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -17,6 +18,22 @@ from app.services.auth import release_expired_reservations
 from app.services.common import utcnow
 
 logger = logging.getLogger(__name__)
+
+
+class RequestIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id_var.get() or "-"
+        return True
+
+
+def setup_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.addFilter(RequestIdFilter())
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s request_id=%(request_id)s %(message)s"))
+    app_logger = logging.getLogger("app")
+    app_logger.handlers = [handler]
+    app_logger.setLevel(logging.INFO)
+    app_logger.propagate = False
 
 
 async def cleanup_once() -> None:
@@ -49,17 +66,22 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     get_settings()
+    setup_logging()
     app = FastAPI(title="Subscription Management API", version="1.0.0", lifespan=lifespan)
 
     @app.middleware("http")
     async def request_id(request: Request, call_next):
         value = str(uuid.uuid4())
         token = request_id_var.set(value)
+        started = time.perf_counter()
         try:
             response = await call_next(request)
         except Exception as exc:
             logger.exception("Unhandled error: %s", type(exc).__name__)
             response = error_response(500, "INTERNAL_ERROR", "Internal server error")
+        try:
+            elapsed = (time.perf_counter() - started) * 1000
+            logger.info("%s %s %s %.0fms", request.method, request.url.path, response.status_code, elapsed)
         finally:
             request_id_var.reset(token)
         response.headers["X-Request-ID"] = value

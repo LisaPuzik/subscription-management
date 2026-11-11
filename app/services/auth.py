@@ -40,6 +40,7 @@ def create_session(
         ip_address=ip_address,
     )
     session.add(auth_session)
+    audit(session, user_id, "auth_session", auth_session.id, "session_created")
     return auth_session, token
 
 
@@ -63,6 +64,9 @@ async def rotate_session(
     await session.flush()
     current.revoked_at = now
     current.replaced_by_session_id = new_session.id
+    audit(
+        session, current.user_id, "auth_session", current.id, "session_rotated", None, {"replaced_by": new_session.id}
+    )
     return current.user_id, new_refresh
 
 
